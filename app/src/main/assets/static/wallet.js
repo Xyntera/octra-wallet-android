@@ -2756,6 +2756,7 @@ async function modalUnlock() {
     if (_selectedUnlockAddr) unlockBody.addr = _selectedUnlockAddr;
     if (_selectedUnlockFile) unlockBody.file = _selectedUnlockFile;
     await api('POST', '/wallet/unlock', unlockBody);
+    localStorage.setItem('auto_pin', pin);
     _selectedUnlockAddr = '';
     _selectedUnlockFile = '';
     $('modal-overlay').style.display = 'none';
@@ -2780,7 +2781,7 @@ async function modalFinishSetup() {
     $('modal-pin-confirm').value = '';
     return;
   }
-  $('modal-result').innerHTML = '<div class="loading">processing...</div>';
+  $('modal-result').innerHTML = '<div class="loading" style="font-size:12px">cryptographically syncing & importing nodes (this takes up to 20 seconds, please wait)...</div>';
   try {
     if (_pendingAction === 'create') {
       var resp = await api('POST', '/wallet/create', { pin: pin });
@@ -2811,6 +2812,7 @@ async function modalFinishSetup() {
       await api('POST', '/wallet/unlock', { pin: pin });
     }
     $('modal-overlay').style.display = 'none';
+    localStorage.setItem('auto_pin', pin);
     await loadWalletInfo();
     startRefreshTimer();
   } catch (e) {
@@ -2921,6 +2923,22 @@ async function init() {
       startRefreshTimer();
       return;
     }
+    
+    var ap = localStorage.getItem('auto_pin');
+    var wallets = st.wallets || [];
+    if (ap && wallets.length > 0) {
+      try {
+         var unlockBody = { pin: ap };
+         if (wallets.length === 1 && wallets[0].addr) unlockBody.addr = wallets[0].addr;
+         var resAPI = await api('POST', '/wallet/unlock', unlockBody);
+         await loadWalletInfo();
+         startRefreshTimer();
+         return;
+      } catch (e) { 
+         localStorage.removeItem('auto_pin'); 
+      }
+    }
+
     if (st.has_legacy) {
       $('modal-sub').textContent = 'migrating wallet - set a PIN';
       showPinSetup('migrate');
