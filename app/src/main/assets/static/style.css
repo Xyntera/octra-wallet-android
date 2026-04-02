@@ -1397,9 +1397,9 @@ header { display: none !important; }
 .stat-box:nth-child(3), .stat-box:nth-child(4) { display: none !important; }
 
 /* THE 3 CIRCULAR ACTION BUTTONS */
-body:has(#view-dashboard.active) .nav-tabs a[data-view="send"],
-body:has(#view-dashboard.active) .nav-tabs a[data-view="encrypt"],
-body:has(#view-dashboard.active) .nav-tabs a[data-view="stealth"] {
+body[data-active-view="dashboard"] .nav-tabs a[data-view="send"],
+body[data-active-view="dashboard"] .nav-tabs a[data-view="encrypt"],
+body[data-active-view="dashboard"] .nav-tabs a[data-view="stealth"] {
   display: flex !important; flex-direction: column !important; position: absolute !important;
   top: 230px !important; width: 80px !important; height: auto !important;
   background: transparent !important; color: #000 !important;
@@ -1407,27 +1407,27 @@ body:has(#view-dashboard.active) .nav-tabs a[data-view="stealth"] {
   font-size: 12px !important; font-weight: 500 !important; text-transform: capitalize !important;
   z-index: 10 !important; border: none !important; margin: 0 !important; padding: 0 !important;
 }
-body:has(#view-dashboard.active) .nav-tabs a[data-view="send"]::before,
-body:has(#view-dashboard.active) .nav-tabs a[data-view="encrypt"]::before,
-body:has(#view-dashboard.active) .nav-tabs a[data-view="stealth"]::before {
+body[data-active-view="dashboard"] .nav-tabs a[data-view="send"]::before,
+body[data-active-view="dashboard"] .nav-tabs a[data-view="encrypt"]::before,
+body[data-active-view="dashboard"] .nav-tabs a[data-view="stealth"]::before {
   content: "↗"; display: flex; align-items: center; justify-content: center;
   width: 56px; height: 56px; border-radius: 50%;
   background: linear-gradient(180deg, #3399FF, #007AFF);
   color: #FFF; font-size: 24px; font-weight: bold; margin-bottom: 8px;
   box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
 }
-body:has(#view-dashboard.active) .nav-tabs a[data-view="encrypt"]::before { content: "↓"; font-size: 20px; }
-body:has(#view-dashboard.active) .nav-tabs a[data-view="stealth"]::before { content: "🔒"; }
-body:has(#view-dashboard.active) .nav-tabs a[data-view="send"] { left: 10% !important; margin-left: 0 !important; }
-body:has(#view-dashboard.active) .nav-tabs a[data-view="stealth"] { left: 50% !important; margin-left: -40px !important; }
-body:has(#view-dashboard.active) .nav-tabs a[data-view="encrypt"] { right: 10% !important; left: auto !important; margin-left: 0 !important; }
+body[data-active-view="dashboard"] .nav-tabs a[data-view="encrypt"]::before { content: "↓"; font-size: 20px; }
+body[data-active-view="dashboard"] .nav-tabs a[data-view="stealth"]::before { content: "🔒"; }
+body[data-active-view="dashboard"] .nav-tabs a[data-view="send"] { left: 10% !important; margin-left: 0 !important; }
+body[data-active-view="dashboard"] .nav-tabs a[data-view="stealth"] { left: 50% !important; margin-left: -40px !important; }
+body[data-active-view="dashboard"] .nav-tabs a[data-view="encrypt"] { right: 10% !important; left: auto !important; margin-left: 0 !important; }
 
 /* RE-POSITION KEYS HEADER INTO SETTINGS */
-body:has(#view-settings.active) .nav-tabs a[data-view="keys"] {
+body[data-active-view="settings"] .nav-tabs a[data-view="keys"] {
   display: block !important; position: absolute !important; top: 120px !important; left: 20px !important; right: 20px !important;
   background: #007AFF !important; color: #FFF !important; border-radius: 14px !important; padding: 15px !important; text-align: center !important; font-size: 16px !important; font-weight: 600 !important;
 }
-body:has(#view-settings.active) #view-settings { padding-top: 80px !important; }
+body[data-active-view="settings"] #view-settings { padding-top: 80px !important; }
 
 /* TRANSACTIONS LIST STYLING */
 #view-dashboard .section:first-of-type { margin-top: 130px !important; }

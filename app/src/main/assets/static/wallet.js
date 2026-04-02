@@ -903,6 +903,7 @@ function feeError(resultId, inputId, opType) {
 }
 
 function switchView(name) {
+  document.body.setAttribute('data-active-view', name);
   if (name !== 'tx') _prevView = name;
   var views = document.querySelectorAll('.view');
   for (var i = 0; i < views.length; i++) views[i].classList.remove('active');
