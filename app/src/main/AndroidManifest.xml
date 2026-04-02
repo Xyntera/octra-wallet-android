@@ -2,8 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="Octra Wallet"
