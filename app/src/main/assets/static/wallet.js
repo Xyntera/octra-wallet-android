@@ -790,9 +790,7 @@ async function bgStealthScan() {
   } catch (e) {}
 }
 
-async function fetchBalance() {
-  try {
-    var bal = await api('GET', '/balance');
+function updateBalanceUI(bal) {
     _cachedBal = bal;
     var pub = bal.public_balance || '0';
     var enc = bal.encrypted_balance || '0';
@@ -802,19 +800,25 @@ async function fetchBalance() {
     if (encCorrupt) _encryptedBalanceRaw = 0;
     if ($('btn-key-switch')) $('btn-key-switch').style.display = encCorrupt ? '' : 'none';
     if ($('st-balance')) $('st-balance').textContent = fmtOct(pub);
-    if ($('st-enc-balance')) $('st-enc-balance').textContent = encCorrupt
-        ? 'corrupted ciphertext' : fmtOct(enc);
+    if ($('st-enc-balance')) $('st-enc-balance').textContent = encCorrupt ? 'corrupted ciphertext' : fmtOct(enc);
     if ($('st-nonce')) $('st-nonce').textContent = bal.nonce || '0';
     if ($('st-staging')) $('st-staging').textContent = bal.staging || '0';
     if ($('send-bal')) $('send-bal').textContent = fmtOct(pub);
     if ($('enc-pub-bal')) $('enc-pub-bal').textContent = fmtOct(pub);
-    if ($('enc-enc-bal')) $('enc-enc-bal').textContent = encCorrupt
-        ? 'corrupted ciphertext' : fmtOct(enc);
-    if ($('st-enc-bal-info')) $('st-enc-bal-info').textContent = encCorrupt
-        ? 'corrupted ciphertext' : fmtOct(enc);
+    if ($('enc-enc-bal')) $('enc-enc-bal').textContent = encCorrupt ? 'corrupted ciphertext' : fmtOct(enc);
+    if ($('st-enc-bal-info')) $('st-enc-bal-info').textContent = encCorrupt ? 'corrupted ciphertext' : fmtOct(enc);
     if ($('ct-bal')) $('ct-bal').textContent = fmtOct(pub);
     $('hdr-status').textContent = _rpcHost ? 'online | ' + networkLabel(_rpcHost) : 'online';
     $('hdr-status').className = 'right online';
+}
+
+async function fetchBalance() {
+  try {
+    var c = localStorage.getItem('cache_bal');
+    if(c) { try { updateBalanceUI(JSON.parse(c)); } catch(e){} }
+    var bal = await api('GET', '/balance');
+    localStorage.setItem('cache_bal', JSON.stringify(bal));
+    updateBalanceUI(bal);
     return bal;
   } catch (e) {
     $('hdr-status').textContent = 'offline';
@@ -1224,22 +1228,30 @@ function renderDashTxs(txs) {
 }
 
 async function loadDashboard() {
-  await fetchBalance();
+  var cb = localStorage.getItem('cache_dash_txs');
+  if (cb) { try { renderDashTxs(JSON.parse(cb)); } catch(e){} }
+  
+  fetchBalance();
   loadTokenSymbols();
   try {
     var lim = dashTxLimit();
     var hist = await api('GET', '/history?limit=' + lim + '&offset=0');
     var txs = hist.transactions || [];
     if (txs.length === 0) {
-      $('dash-txs').innerHTML = '<div class="staging-empty">no transactions yet</div>';
-      $('dash-more').innerHTML = '';
+      if (!cb) {
+        $('dash-txs').innerHTML = '<div class="staging-empty">no transactions yet</div>';
+        $('dash-more').innerHTML = '';
+      }
       return;
     }
+    localStorage.setItem('cache_dash_txs', JSON.stringify(txs));
     renderDashTxs(txs);
     fetchMissingSymbols(txs).then(function() { renderDashTxs(txs); });
   } catch (e) {
-    $('dash-txs').innerHTML = '<div class="staging-empty">no transactions yet</div>';
-    $('dash-more').innerHTML = '';
+    if (!cb) {
+      $('dash-txs').innerHTML = '<div class="staging-empty">no transactions yet</div>';
+      $('dash-more').innerHTML = '';
+    }
   }
 }
 
