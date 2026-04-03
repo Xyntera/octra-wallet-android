@@ -1431,3 +1431,93 @@ td {
   background: #007AFF; color: #fff; border-color: #007AFF; font-weight: 600;
 }
 .modal-btn-primary:hover { background: #0051A8; }
+
+/* ─── Custom Scrollbars ─────────────────────────────────────────── */
+
+/* Global — thin scrollbars everywhere (Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(60,60,67,0.25) transparent;
+}
+
+/* Global — WebKit thin scrollbar track + thumb */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(60,60,67,0.22);
+  border-radius: 4px;
+  min-height: 24px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(60,60,67,0.42);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Nav tabs — horizontal scrollbar hidden (design intent) */
+.nav-tabs::-webkit-scrollbar { display: none; }
+.nav-tabs { scrollbar-width: none; }
+
+/* IDE / dark panels — visible white-on-dark scrollbar */
+.console-output::-webkit-scrollbar,
+#stealth-log::-webkit-scrollbar,
+#decrypt-log::-webkit-scrollbar,
+.ide-file-tree::-webkit-scrollbar,
+.ide-tabs::-webkit-scrollbar,
+.editor-body textarea::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.console-output::-webkit-scrollbar-track,
+#stealth-log::-webkit-scrollbar-track,
+#decrypt-log::-webkit-scrollbar-track,
+.ide-file-tree::-webkit-scrollbar-track,
+.ide-tabs::-webkit-scrollbar-track,
+.editor-body textarea::-webkit-scrollbar-track {
+  background: #141416;
+}
+.console-output::-webkit-scrollbar-thumb,
+#stealth-log::-webkit-scrollbar-thumb,
+#decrypt-log::-webkit-scrollbar-thumb,
+.ide-file-tree::-webkit-scrollbar-thumb,
+.ide-tabs::-webkit-scrollbar-thumb,
+.editor-body textarea::-webkit-scrollbar-thumb {
+  background: #48484A;
+  border-radius: 4px;
+}
+.console-output::-webkit-scrollbar-thumb:hover,
+#stealth-log::-webkit-scrollbar-thumb:hover,
+#decrypt-log::-webkit-scrollbar-thumb:hover {
+  background: #636366;
+}
+
+/* Dark panel Firefox */
+.console-output,
+#stealth-log,
+#decrypt-log,
+.ide-file-tree {
+  scrollbar-width: thin;
+  scrollbar-color: #48484A #141416;
+}
+
+/* Content area — show scrollbar on hover only */
+html {
+  overflow-y: scroll;
+}
+html::-webkit-scrollbar {
+  width: 5px;
+}
+html::-webkit-scrollbar-thumb {
+  background: rgba(60,60,67,0.18);
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+html::-webkit-scrollbar-thumb:hover {
+  background: rgba(60,60,67,0.38);
+}

@@ -1,11 +1,18 @@
 package com.octra.wallet;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
+import android.os.Process;
 import android.util.Log;
 
 import java.io.File;
@@ -16,11 +23,15 @@ import java.io.OutputStream;
 
 public class WalletService extends Service {
 
-    private static final String TAG = "WalletService";
-    static final int PORT = 8420;
+    private static final String TAG         = "WalletService";
+    static final         int    PORT        = 8420;
+    private static final String CHANNEL_ID  = "octra_wallet_service";
+    private static final int    NOTIF_ID    = 1001;
+    private static final String ACTION_STOP = "com.octra.wallet.ACTION_STOP";
 
-    private Process serverProcess;
-    private final IBinder localBinder = new LocalBinder();
+    private Process              serverProcess;
+    private PowerManager.WakeLock cpuLock;
+    private final IBinder         localBinder = new LocalBinder();
 
     public class LocalBinder extends Binder {
         WalletService getService() { return WalletService.this; }
@@ -29,26 +40,115 @@ public class WalletService extends Service {
     @Override
     public IBinder onBind(Intent intent) { return localBinder; }
 
+    // ── Lifecycle ────────────────────────────────────────────────────
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+        acquireWakeLock();
+        startForeground(NOTIF_ID, buildNotification("starting…"));
+    }
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // Handle "Stop" action from notification
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         if (serverProcess == null || !serverProcess.isAlive()) {
             new Thread(this::setupAndStart).start();
         }
-        return START_STICKY;
+        return START_STICKY;   // restart if killed
     }
 
+    @Override
+    public void onDestroy() {
+        if (serverProcess != null) { serverProcess.destroy(); serverProcess = null; }
+        if (cpuLock != null && cpuLock.isHeld()) cpuLock.release();
+        stopForeground(true);
+        super.onDestroy();
+    }
+
+    // ── Notification ─────────────────────────────────────────────────
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                CHANNEL_ID, "Octra Wallet Server",
+                NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("Keeps the wallet HTTP server alive");
+            ch.setShowBadge(false);
+            getSystemService(NotificationManager.class).createNotificationChannel(ch);
+        }
+    }
+
+    private Notification buildNotification(String status) {
+        // Tap → open app
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openPi = PendingIntent.getActivity(this, 0, openIntent,
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        // "Stop" action
+        Intent stopIntent = new Intent(this, WalletService.class);
+        stopIntent.setAction(ACTION_STOP);
+        PendingIntent stopPi = PendingIntent.getService(this, 0, stopIntent,
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        Notification.Builder b;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            b = new Notification.Builder(this, CHANNEL_ID);
+        } else {
+            b = new Notification.Builder(this);
+        }
+
+        b.setSmallIcon(android.R.drawable.ic_dialog_info)
+         .setContentTitle("Octra Wallet")
+         .setContentText("Server: " + status + "  |  port " + PORT)
+         .setContentIntent(openPi)
+         .setOngoing(true)
+         .setCategory(Notification.CATEGORY_SERVICE)
+         .addAction(android.R.drawable.ic_delete, "Stop server", stopPi);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        }
+        return b.build();
+    }
+
+    private void updateNotification(String status) {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        nm.notify(NOTIF_ID, buildNotification(status));
+    }
+
+    // ── Wake Lock (keeps CPU running when screen is off) ─────────────
+
+    private void acquireWakeLock() {
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        cpuLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "octra:cpu_lock");
+        cpuLock.setReferenceCounted(false);
+        cpuLock.acquire();
+    }
+
+    // ── Server setup ─────────────────────────────────────────────────
+
     private void setupAndStart() {
+        // Boost server thread to foreground priority
+        Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND);
+
         try {
             File filesDir  = getFilesDir();
             File dataDir   = new File(filesDir, "data");
             File staticDir = new File(filesDir, "static");
-
-            // Android extracts jniLibs to the app's native lib dir — always executable
-            File binary = new File(getApplicationInfo().nativeLibraryDir, "liboctra_wallet.so");
+            File binary    = new File(getApplicationInfo().nativeLibraryDir,
+                                      "liboctra_wallet.so");
 
             dataDir.mkdirs();
 
-            // Re-extract static assets if APK version changed (ensures CSS/JS updates are applied)
+            // Re-extract assets when APK version changes (new CSS / JS updates)
             int currentVersion = 0;
             try {
                 PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
@@ -59,21 +159,33 @@ public class WalletService extends Service {
             int lastVersion = prefs.getInt("extracted_version", -1);
 
             if (lastVersion != currentVersion || !new File(staticDir, "index.html").exists()) {
+                updateNotification("extracting assets…");
                 if (staticDir.exists()) deleteDir(staticDir);
                 extractAssetDir("static", staticDir);
                 prefs.edit().putInt("extracted_version", currentVersion).apply();
             }
 
-            File index = new File(staticDir, "index.html");
-            Log.i(TAG, "binary=" + binary.getAbsolutePath() + " exists=" + binary.exists() + " exec=" + binary.canExecute());
-            Log.i(TAG, "static/index.html exists=" + index.exists());
+            Log.i(TAG, "binary=" + binary.getAbsolutePath()
+                + " exists=" + binary.exists()
+                + " exec=" + binary.canExecute());
 
-            ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), String.valueOf(PORT));
+            if (!binary.exists()) {
+                Log.e(TAG, "Binary missing — cannot start server");
+                updateNotification("ERROR: binary missing");
+                return;
+            }
+
+            updateNotification("starting server…");
+
+            ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(),
+                                                   String.valueOf(PORT));
             pb.directory(filesDir);
             pb.redirectErrorStream(true);
-            serverProcess = pb.start();  // start only once
+            serverProcess = pb.start();   // ← start ONCE only
 
-            // Log all server output
+            updateNotification("running on :" + PORT);
+
+            // Drain server stdout/stderr to logcat
             new Thread(() -> {
                 try (java.io.BufferedReader r = new java.io.BufferedReader(
                         new java.io.InputStreamReader(serverProcess.getInputStream()))) {
@@ -83,21 +195,28 @@ public class WalletService extends Service {
                 try {
                     int code = serverProcess.waitFor();
                     Log.e(TAG, "Server exited with code " + code);
+                    updateNotification("stopped (exit " + code + ")");
                 } catch (InterruptedException ignored) {}
             }).start();
 
         } catch (Exception e) {
             Log.e(TAG, "Setup failed: " + e.getMessage(), e);
+            updateNotification("ERROR: " + e.getMessage());
         }
     }
 
+    // ── Helpers ──────────────────────────────────────────────────────
+
     private void deleteDir(File dir) {
-        if (dir.isDirectory()) for (File f : dir.listFiles()) deleteDir(f);
+        if (dir.isDirectory()) {
+            File[] files = dir.listFiles();
+            if (files != null) for (File f : files) deleteDir(f);
+        }
         dir.delete();
     }
 
     private void extractAsset(String assetName, File dest) throws IOException {
-        try (InputStream in = getAssets().open(assetName);
+        try (InputStream in  = getAssets().open(assetName);
              OutputStream out = new FileOutputStream(dest)) {
             byte[] buf = new byte[65536];
             int n;
@@ -114,19 +233,13 @@ public class WalletService extends Service {
         destDir.mkdirs();
         for (String child : children) {
             String childAsset = assetPath + "/" + child;
-            File childDest = new File(destDir, child);
-            String[] grandchildren = getAssets().list(childAsset);
-            if (grandchildren != null && grandchildren.length > 0) {
+            File   childDest  = new File(destDir, child);
+            String[] grands   = getAssets().list(childAsset);
+            if (grands != null && grands.length > 0) {
                 extractAssetDir(childAsset, childDest);
             } else {
                 extractAsset(childAsset, childDest);
             }
         }
-    }
-
-    @Override
-    public void onDestroy() {
-        if (serverProcess != null) { serverProcess.destroy(); serverProcess = null; }
-        super.onDestroy();
     }
 }
