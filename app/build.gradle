@@ -16,10 +16,16 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("../octra-release.keystore")
-            storePassword "octrapass"
-            keyAlias "octra"
-            keyPassword "octrapass"
+            // Use environment variables for CI (GitHub Actions), fall back to local values
+            def keystorePath = System.getenv("KEYSTORE_PATH") ?: "../octra-release.keystore"
+            def keystorePass = System.getenv("KEYSTORE_PASSWORD") ?: "octrapass"
+            def keyAliasVal = System.getenv("KEY_ALIAS") ?: "octra"
+            def keyPass = System.getenv("KEY_PASSWORD") ?: "octrapass"
+
+            storeFile file(keystorePath)
+            storePassword keystorePass
+            keyAlias keyAliasVal
+            keyPassword keyPass
         }
     }
 
