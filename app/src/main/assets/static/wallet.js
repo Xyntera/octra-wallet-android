@@ -829,19 +829,31 @@ async function fetchBalance() {
 
 async function api(method, path, body) {
   var opts = { method: method, headers: {} };
-
-
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
-  var res = await fetch('/api' + path, opts);
-  var text = await res.text();
-  if (!text || text.length === 0) throw new Error('empty response from RPC (possible timeout)');
-  var j;
-  try { j = JSON.parse(text); } catch (e) { throw new Error('invalid server response: ' + text.substring(0, 200)); }
-  if (!res.ok) throw new Error(j.error || j.message || 'request failed');
-  return j;
+  // 15s timeout so History/Keys never hang forever
+  var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  var timer;
+  if (controller) {
+    opts.signal = controller.signal;
+    timer = setTimeout(function() { controller.abort(); }, 15000);
+  }
+  try {
+    var res = await fetch('/api' + path, opts);
+    if (timer) clearTimeout(timer);
+    var text = await res.text();
+    if (!text || text.length === 0) throw new Error('empty response from server');
+    var j;
+    try { j = JSON.parse(text); } catch (e) { throw new Error('invalid server response: ' + text.substring(0, 200)); }
+    if (!res.ok) throw new Error(j.error || j.message || 'request failed (' + res.status + ')');
+    return j;
+  } catch (err) {
+    if (timer) clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error('request timed out (server not responding)');
+    throw err;
+  }
 }
 
 async function fetchFees() {
@@ -1259,6 +1271,44 @@ async function refreshSendBalance() {
   await fetchBalance();
 }
 
+// Poll for tx confirmation and update the result element live
+async function pollTxConfirmation(resultId, hash, labelHtml) {
+  if (!hash) return;
+  var maxAttempts = 30; // 30 x 3s = 90s max
+  for (var i = 0; i < maxAttempts; i++) {
+    await new Promise(function(r) { setTimeout(r, 3000); });
+    try {
+      var res = await api('GET', '/tx?hash=' + encodeURIComponent(hash));
+      var st = res.status || 'pending';
+      var stTag = txStatusTag(st);
+      if (st === 'confirmed') {
+        showResult(resultId, true,
+          '✅ ' + labelHtml + '<br>' +
+          '<span class="mono" style="font-size:11px">tx: ' + txLink(hash) + '</span> ' + stTag);
+        fetchBalance();
+        return;
+      } else if (st === 'rejected') {
+        showResult(resultId, false,
+          '❌ Transaction rejected<br>' +
+          '<span class="mono" style="font-size:11px">tx: ' + txLink(hash) + '</span> ' + stTag +
+          (res.reject_reason ? '<br>reason: ' + escapeHtml(res.reject_reason) : ''));
+        return;
+      } else {
+        // Still pending — update with spinner
+        showResult(resultId, true,
+          '<span class="tx-spinner"></span> ' + labelHtml +
+          '<br><span class="mono" style="font-size:11px">tx: ' + txLink(hash) + '</span> ' + stTag +
+          ' <span style="color:#8C9DB6;font-size:11px">(checking ' + (i+1) + '/' + maxAttempts + ')</span>');
+      }
+    } catch(e) { /* keep polling */ }
+  }
+  // Timeout — show final state with explorer link
+  showResult(resultId, true,
+    '⏳ ' + labelHtml + '<br>' +
+    '<span class="mono" style="font-size:11px">tx: ' + txLink(hash) + '</span>' +
+    ' <span style="color:#8C9DB6;font-size:11px">(check explorer for status)</span>');
+}
+
 async function doSend() {
   clearResult('send-result');
   var to = $('send-to').value.trim();
@@ -1267,6 +1317,13 @@ async function doSend() {
   if (!validAddr(to)) { showResult('send-result', false, 'invalid recipient address'); return; }
   if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) { showResult('send-result', false, 'invalid amount'); return; }
   if (!validateFee('send-fee', 'standard')) { feeError('send-result', 'send-fee', 'standard'); return; }
+
+  // Show animated sending state
+  var btn = document.querySelector('button[onclick="doSend()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'sending...'; }
+  showResult('send-result', true,
+    '<span class="tx-spinner"></span> Broadcasting transaction…');
+
   try {
     var body = { to: to, amount: amount };
     if (msg) body.message = msg;
@@ -1274,14 +1331,22 @@ async function doSend() {
     if (fee) body.ou = fee;
     var res = await api('POST', '/send', body);
     var txHash = res.hash || res.tx_hash || '';
-    showResult('send-result', true, 'sent ' + amount + ' oct - tx: ' + txLink(txHash));
+    var labelHtml = 'Sent <strong>' + escapeHtml(amount) + ' oct</strong> → ' +
+      '<span class="mono" style="font-size:11px">' + escapeHtml(to.slice(0,14) + '…') + '</span>';
+    showResult('send-result', true,
+      '<span class="tx-spinner"></span> ' + labelHtml +
+      '<br><span class="mono" style="font-size:11px">tx: ' + txLink(txHash) + '</span>' +
+      ' <span class="pending-tag">pending</span> <span style="color:#8C9DB6;font-size:11px">confirming…</span>');
     $('send-to').value = '';
     $('send-amount').value = '';
     if ($('send-msg')) $('send-msg').value = '';
     loadDashboard();
-    refreshSendBalance();
+    // Poll for confirmation in background
+    pollTxConfirmation('send-result', txHash, labelHtml);
   } catch (e) {
     showResult('send-result', false, e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'send'; }
   }
 }
 
@@ -1330,18 +1395,27 @@ async function doEncrypt() {
   var amount = $('enc-amount').value.trim();
   if (!amount || !/^\d+(\.\d{1,6})?$/.test(amount) || parseFloat(amount) <= 0) { showResult('enc-result', false, 'invalid amount'); return; }
   if (!validateFee('enc-fee', 'encrypt')) { feeError('enc-result', 'enc-fee', 'encrypt'); return; }
+  var btn = document.querySelector('button[onclick="doEncrypt()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'encrypting...'; }
+  showResult('enc-result', true, '<span class="tx-spinner"></span> Encrypting ' + escapeHtml(amount) + ' oct…');
   try {
     var encBody = { amount: amount };
     var encFee = $('enc-fee') ? $('enc-fee').value.trim() : '';
     if (encFee) encBody.ou = encFee;
     var res = await api('POST', '/encrypt', encBody);
     var txHash = res.hash || res.tx_hash || '';
-    showResult('enc-result', true, 'encrypted ' + amount + ' oct - tx: ' + txLink(txHash));
-      $('enc-amount').value = '';
+    var labelHtml = 'Encrypted <strong>' + escapeHtml(amount) + ' oct</strong>';
+    showResult('enc-result', true,
+      '<span class="tx-spinner"></span> ' + labelHtml +
+      '<br><span class="mono" style="font-size:11px">tx: ' + txLink(txHash) + '</span>' +
+      ' <span class="pending-tag">pending</span> <span style="color:#8C9DB6;font-size:11px">confirming…</span>');
+    $('enc-amount').value = '';
     loadDashboard();
-    refreshEncryptBalances();
+    pollTxConfirmation('enc-result', txHash, labelHtml);
   } catch (e) {
     showResult('enc-result', false, e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'encrypt'; }
   }
 }
 
@@ -1385,38 +1459,67 @@ async function doStealthSend() {
   clearStealthLog();
   var to = $('stealth-to').value.trim();
   var amount = $('stealth-amount').value.trim();
-  if (!validAddr(to)) { logStealth('error: invalid recipient address', 'log-err'); return; }
-  if (!amount || !/^\d+(\.\d{1,6})?$/.test(amount) || parseFloat(amount) <= 0) { logStealth('error: invalid amount', 'log-err'); return; }
+  if (!validAddr(to)) { logStealth('❌ error: invalid recipient address', 'log-err'); return; }
+  if (!amount || !/^\d+(\.\d{1,6})?$/.test(amount) || parseFloat(amount) <= 0) { logStealth('❌ error: invalid amount', 'log-err'); return; }
   var needRaw = Math.round(parseFloat(amount) * 1000000);
-  if (_encryptedBalanceRaw <= 0) { logStealth('error: no encrypted balance - encrypt funds first', 'log-err'); return; }
-  if (needRaw > _encryptedBalanceRaw) { logStealth('error: insufficient encrypted balance: have ' + fmtOct(_encryptedBalanceRaw) + ', need ' + amount + ' oct', 'log-err'); return; }
-  if (!validateFee('stealth-fee', 'stealth')) { logStealth('error: invalid fee - must be integer >= ' + ((_fees.stealth && _fees.stealth.minimum) || '?'), 'log-err'); return; }
-  logStealth('initiating stealth send...', 'log-info');
-
-
-
-
-  
-  logStealth('to: ' + to, 'log-info');
-  logStealth('amount: ' + amount + ' oct', 'log-info');
+  if (_encryptedBalanceRaw <= 0) { logStealth('❌ error: no encrypted balance - encrypt funds first', 'log-err'); return; }
+  if (needRaw > _encryptedBalanceRaw) { logStealth('❌ error: insufficient encrypted balance: have ' + fmtOct(_encryptedBalanceRaw) + ', need ' + amount + ' oct', 'log-err'); return; }
+  if (!validateFee('stealth-fee', 'stealth')) { logStealth('❌ error: invalid fee - must be integer >= ' + ((_fees.stealth && _fees.stealth.minimum) || '?'), 'log-err'); return; }
+  logStealth('⟳ initiating stealth send...', 'log-info');
+  logStealth('→ to: ' + to, 'log-info');
+  logStealth('→ amount: ' + amount + ' oct', 'log-info');
   logStealth('', '');
+  var btn = document.querySelector('button[onclick="doStealthSend()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'sending...'; }
   try {
     var stBody = { to: to, amount: amount };
     var stFee = $('stealth-fee') ? $('stealth-fee').value.trim() : '';
     if (stFee) stBody.ou = stFee;
+    logStealth('⟳ broadcasting transaction...', 'log-info');
     var res = await api('POST', '/stealth/send', stBody);
     if (res.steps) {
-      for (var i = 0; i < res.steps.length; i++) logStealth(res.steps[i], 'log-info');
+      for (var i = 0; i < res.steps.length; i++) logStealth('  ' + res.steps[i], 'log-info');
     }
     logStealth('', '');
-    logStealth('stealth send complete', 'log-ok');
-    if (res.tx_hash || res.hash) logStealth('tx: ' + (res.tx_hash || res.hash), 'log-ok');
+    logStealth('✅ stealth send submitted', 'log-ok');
+    var txHash = res.tx_hash || res.hash || '';
+    if (txHash) {
+      logStealth('tx: ' + txHash, 'log-ok');
+      logStealth('⟳ polling for confirmation...', 'log-info');
+      // Poll confirmation with live log output
+      var attempts = 0;
+      var maxA = 25;
+      var poller = setInterval(async function() {
+        attempts++;
+        if (attempts > maxA) {
+          clearInterval(poller);
+          logStealth('⏳ timeout - check explorer for status', 'log-info');
+          return;
+        }
+        try {
+          var txRes = await api('GET', '/tx?hash=' + encodeURIComponent(txHash));
+          var st = txRes.status || 'pending';
+          if (st === 'confirmed') {
+            clearInterval(poller);
+            logStealth('✅ CONFIRMED on-chain!', 'log-ok');
+            fetchBalance();
+          } else if (st === 'rejected') {
+            clearInterval(poller);
+            logStealth('❌ REJECTED: ' + (txRes.reject_reason || 'unknown'), 'log-err');
+          } else {
+            logStealth('  ⟳ status: ' + st + ' (check ' + attempts + '/' + maxA + ')', 'log-info');
+          }
+        } catch(e) {}
+      }, 3000);
+    }
     $('stealth-to').value = '';
     $('stealth-amount').value = '';
     loadDashboard();
     refreshStealthBalance();
   } catch (e) {
-    logStealth('error: ' + e.message, 'log-err');
+    logStealth('❌ error: ' + e.message, 'log-err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'stealth send'; }
   }
 }
 
@@ -2274,7 +2377,10 @@ async function loadHistory() {
     }
     fetchMissingSymbols(txs).then(function() { renderHistoryTxs(txs); });
   } catch (e) {
-    $('history-list').innerHTML = '<div class="error-box">' + e.message + '</div>';
+    $('history-list').innerHTML =
+      '<div class="error-box">' + escapeHtml(e.message) + '</div>' +
+      '<div style="text-align:center;margin-top:12px">' +
+      '<button class="action-btn" onclick="loadHistory()">retry</button></div>';
   }
 }
 
@@ -2325,7 +2431,10 @@ async function showKeys() {
     h += '</table>';
     $('keys-table').innerHTML = h;
   } catch (e) {
-    $('keys-table').innerHTML = '<div class="error-box">' + e.message + '</div>';
+    $('keys-table').innerHTML =
+      '<div class="error-box">' + escapeHtml(e.message) + '</div>' +
+      '<div style="text-align:center;margin-top:12px">' +
+      '<button class="action-btn" onclick="showKeys()">retry</button></div>';
   }
 }
 

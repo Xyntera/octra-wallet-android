@@ -1521,3 +1521,22 @@ html::-webkit-scrollbar-thumb {
 html::-webkit-scrollbar-thumb:hover {
   background: rgba(60,60,67,0.38);
 }
+
+/* ─── Transaction Sending Spinner ───────────────────────────────── */
+@keyframes tx-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.tx-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 122, 255, 0.25);
+  border-top-color: #007AFF;
+  border-radius: 50%;
+  animation: tx-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.result-ok .tx-spinner  { border-top-color: #34C759; border-color: rgba(52,199,89,0.25); }
+.result-error .tx-spinner { border-top-color: #FF3B30; }
