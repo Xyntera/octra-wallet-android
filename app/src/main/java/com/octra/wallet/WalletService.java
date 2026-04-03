@@ -12,7 +12,6 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
-import android.os.Process;
 import android.util.Log;
 
 import java.io.File;
@@ -29,7 +28,7 @@ public class WalletService extends Service {
     private static final int    NOTIF_ID    = 1001;
     private static final String ACTION_STOP = "com.octra.wallet.ACTION_STOP";
 
-    private Process              serverProcess;
+    private java.lang.Process   serverProcess;
     private PowerManager.WakeLock cpuLock;
     private final IBinder         localBinder = new LocalBinder();
 
@@ -137,7 +136,7 @@ public class WalletService extends Service {
 
     private void setupAndStart() {
         // Boost server thread to foreground priority
-        Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND);
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_FOREGROUND);
 
         try {
             File filesDir  = getFilesDir();
