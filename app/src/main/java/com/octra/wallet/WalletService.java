@@ -2,6 +2,8 @@ package com.octra.wallet;
 
 import android.app.Service;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.os.Binder;
 import android.os.IBinder;
 import android.util.Log;
@@ -46,10 +48,20 @@ public class WalletService extends Service {
 
             dataDir.mkdirs();
 
-            // Extract static/ web UI into filesDir/static/
-            if (!new File(staticDir, "index.html").exists()) {
+            // Re-extract static assets if APK version changed (ensures CSS/JS updates are applied)
+            int currentVersion = 0;
+            try {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                currentVersion = pi.versionCode;
+            } catch (Exception ignored) {}
+
+            SharedPreferences prefs = getSharedPreferences("octra_prefs", MODE_PRIVATE);
+            int lastVersion = prefs.getInt("extracted_version", -1);
+
+            if (lastVersion != currentVersion || !new File(staticDir, "index.html").exists()) {
                 if (staticDir.exists()) deleteDir(staticDir);
                 extractAssetDir("static", staticDir);
+                prefs.edit().putInt("extracted_version", currentVersion).apply();
             }
 
             File index = new File(staticDir, "index.html");
@@ -59,9 +71,7 @@ public class WalletService extends Service {
             ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), String.valueOf(PORT));
             pb.directory(filesDir);
             pb.redirectErrorStream(true);
-            serverProcess = pb.start();
-            pb.redirectErrorStream(true);
-            serverProcess = pb.start();
+            serverProcess = pb.start();  // start only once
 
             // Log all server output
             new Thread(() -> {

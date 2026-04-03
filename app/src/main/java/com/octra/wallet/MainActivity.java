@@ -8,6 +8,7 @@ import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.view.View;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -39,17 +40,29 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        // Cache-first: never revalidate localhost requests over network
+        s.setCacheMode(WebSettings.LOAD_CACHE_ELSE_NETWORK);
         s.setRenderPriority(WebSettings.RenderPriority.HIGH);
+        // Allow mixed content from localhost
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        // Fit page to screen, no zoom controls
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
+        // Hardware acceleration
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // Suppress safe-browsing overhead for localhost
+        WebView.setWebContentsDebuggingEnabled(false);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
-                webView.setVisibility(View.VISIBLE);
             }
         });
+        // Forward JS console errors to logcat
+        webView.setWebChromeClient(new WebChromeClient());
 
         Intent intent = new Intent(this, WalletService.class);
         startService(intent);
@@ -58,16 +71,16 @@ public class MainActivity extends Activity {
 
     private void waitForServerAndLoad() {
         new Thread(() -> {
-            // Poll up to 60 seconds
-            for (int i = 0; i < 120; i++) {
+            // Poll up to 10 seconds in 100ms increments for fast cold-start
+            for (int i = 0; i < 100; i++) {
                 try {
                     java.net.Socket s = new java.net.Socket();
-                    s.connect(new java.net.InetSocketAddress("127.0.0.1", WalletService.PORT), 500);
+                    s.connect(new java.net.InetSocketAddress("127.0.0.1", WalletService.PORT), 200);
                     s.close();
                     runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:" + WalletService.PORT));
                     return;
                 } catch (Exception e) {
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) {}
                 }
             }
             runOnUiThread(() -> {
