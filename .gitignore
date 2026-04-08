@@ -1,0 +1,32 @@
+# Android build
+/app/build/
+/build/
+*.apk
+*.aab
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Local config
+local.properties
+keystore_base64.txt
+*.keystore
+*.jks
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# Scripts / temp
+fix.ps1
+upload_secrets.py
+_build_android/
+
+# Secrets / keys (never commit)
+*.pem
+*.pk8
