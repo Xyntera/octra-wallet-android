@@ -1432,6 +1432,12 @@ td {
 }
 .modal-btn-primary:hover { background: #0051A8; }
 
+/* ─── Apps view ─────────────────────────────────────────────────── */
+
+#view-apps.active {
+  padding: clamp(16px, 4vw, 32px);
+}
+
 /* ─── Custom Scrollbars ─────────────────────────────────────────── */
 
 /* Global — thin scrollbars everywhere (Firefox) */
