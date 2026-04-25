@@ -945,6 +945,8 @@ var tabId = tabs[i].getAttribute('data-view');
   if (name === 'stealth') refreshStealthBalance();
   if (name === 'tokens') loadTokens();
   if (name === 'dev') refreshContractBalance();
+  var appsBtn = $('hdr-apps');
+  if (appsBtn) appsBtn.style.background = (name === 'apps') ? '#3B567F' : '';
   var devBtn = $('hdr-dev');
   if (devBtn) devBtn.style.background = (name === 'dev') ? '#3B567F' : '';
 }
@@ -2469,6 +2471,7 @@ async function loadSettings() {
     var w = await api('GET', '/wallet');
     $('settings-rpc').value = w.rpc_url || 'http://46.101.86.250:8080';
     $('settings-explorer').value = w.explorer_url || 'https://octrascan.io';
+    $('settings-bridge-signer').value = w.bridge_signer_url || 'https://relayer-002838819188.octra.network';
   } catch (e) {}
   loadAccountList();
 }
@@ -2656,9 +2659,10 @@ async function doSaveSettings() {
   clearResult('settings-result');
   var rpc = $('settings-rpc').value.trim();
   var explorer = $('settings-explorer').value.trim();
+  var bridgeSigner = $('settings-bridge-signer') ? $('settings-bridge-signer').value.trim() : '';
   if (!rpc) { showResult('settings-result', false, 'rpc url required'); return; }
   try {
-    var resp = await api('POST', '/settings', { rpc_url: rpc, explorer_url: explorer });
+    var resp = await api('POST', '/settings', { rpc_url: rpc, explorer_url: explorer, bridge_signer_url: bridgeSigner });
     if (explorer) _explorerUrl = explorer.replace(/\/+$/, '');
     try { _rpcHost = new URL(rpc).hostname; } catch(e) { _rpcHost = rpc; }
     if (resp && resp.cache_cleared) {
@@ -2938,6 +2942,7 @@ async function loadWalletInfo() {
     _hasMasterSeed = !!w.has_master_seed;
     $('hdr-addr').innerHTML = '<span class="mono">' + _walletAddr + '</span>';
     $('hdr-logout').style.display = '';
+    $('hdr-apps').style.display = '';
     $('hdr-dev').style.display = '';
     fetchFees();
     loadDashboard();
@@ -2956,6 +2961,7 @@ async function doLogout() {
   _encryptedBalanceRaw = 0;
   _hasMasterSeed = false;
   $('hdr-logout').style.display = 'none';
+  $('hdr-apps').style.display = 'none';
   $('hdr-dev').style.display = 'none';
   $('hdr-addr').textContent = 'locked';
   $('hdr-status').textContent = 'locked';
