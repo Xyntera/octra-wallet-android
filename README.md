@@ -55,7 +55,7 @@ Or just sideload `app/build/outputs/apk/release/octra-wallet.apk` manually.
 3. WebView opens `http://127.0.0.1:8420` automatically
 4. Full wallet UI — identical to desktop
 
-## Notes
+## NOTES
 
 - Wallet data stored in app's private directory (`/data/data/com.octra.wallet/files/data/`)
 - Server runs as a background service — stays alive while app is open
