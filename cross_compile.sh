@@ -2,23 +2,18 @@
 # ============================================================
 # cross_compile.sh
 # Cross-compiles octra_wallet for Android ARM64
-# Run this on Linux BEFORE building the APK, or use CI workflow.
-#
-# Requirements:
-#   - Android NDK r26+ installed
-#   - Set NDK_PATH below or export NDK_PATH=/path/to/ndk
-#   - Set WEBCLI_DIR to cloned octra-labs/webcli, or let it
-#     auto-clone from GitHub (requires git + internet)
+# Requires: Android NDK r26+, cmake, ninja-build, curl, tar
 # ============================================================
 
 set -e
 
 NDK_PATH="${NDK_PATH:-$HOME/android-ndk-r26d}"
-WEBCLI_DIR="${WEBCLI_DIR:-}"                   # auto-clone if empty
+WEBCLI_DIR="${WEBCLI_DIR:-}"
 OUT_DIR="$(cd "$(dirname "$0")" && pwd)/app/src/main/assets"
 
 TARGET=aarch64-linux-android
-API=26
+# API 28+ required — getrandom() was added in Android API 28
+API=28
 TOOLCHAIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64"
 CC="$TOOLCHAIN/bin/${TARGET}${API}-clang"
 CXX="$TOOLCHAIN/bin/${TARGET}${API}-clang++"
@@ -29,7 +24,7 @@ mkdir -p "$WORK_DIR"
 
 echo "=== [1/6] Checking NDK ==="
 if [ ! -f "$CXX" ]; then
-    echo "ERROR: NDK not found at $NDK_PATH"
+    echo "ERROR: NDK not found at $NDK_PATH (looking for $CXX)"
     echo "Download from: https://developer.android.com/ndk/downloads"
     echo "Then: export NDK_PATH=/path/to/ndk"
     exit 1
@@ -45,7 +40,7 @@ if [ -z "$WEBCLI_DIR" ]; then
         git clone --depth=1 https://github.com/octra-labs/webcli.git "$WEBCLI_DIR"
     else
         echo "Updating octra-labs/webcli..."
-        git -C "$WEBCLI_DIR" pull --ff-only
+        git -C "$WEBCLI_DIR" pull --ff-only || true
     fi
 else
     echo "Using provided WEBCLI_DIR=$WEBCLI_DIR"
@@ -116,26 +111,27 @@ echo ""
 echo "=== [5/6] Cross-compiling octra_wallet from latest webcli ==="
 cd "$WEBCLI_DIR"
 
-# Show what we're building from
 echo "Building from: $WEBCLI_DIR"
 echo "Files: $(ls main.cpp wallet.hpp crypto_utils.hpp rpc_client.hpp 2>/dev/null || echo 'WARNING: some source files missing')"
 
+# Common flags
+COMMON_FLAGS="-O2 -march=armv8-a+crypto -D_GNU_SOURCE -D__ANDROID_API__=${API}"
+
 # Compile C files
-"$CC" -O2 -march=armv8-a+crypto -c lib/tweetnacl.c   -o "$WORK_DIR/tweetnacl.o"
-"$CC" -O2 -march=armv8-a+crypto -c lib/randombytes.c  -o "$WORK_DIR/randombytes.o"
+"$CC" $COMMON_FLAGS -c lib/tweetnacl.c  -o "$WORK_DIR/tweetnacl.o"
+"$CC" $COMMON_FLAGS -c lib/randombytes.c -o "$WORK_DIR/randombytes.o"
 
 # Compile libpvac (static)
-"$CXX" -std=c++17 -O2 -march=armv8-a+crypto -fPIC \
-    -D_GNU_SOURCE \
+# -D__ANDROID_API__=28 ensures getrandom() syscall is available
+"$CXX" -std=c++17 $COMMON_FLAGS -fPIC \
     -I pvac/include \
     -c pvac/pvac_c_api.cpp \
     -o "$WORK_DIR/pvac_c_api.o"
 "$AR" rcs "$WORK_DIR/libpvac.a" "$WORK_DIR/pvac_c_api.o"
 
 # Compile main binary — fully static, no shared STL
-"$CXX" -std=c++17 -O2 -march=armv8-a+crypto \
+"$CXX" -std=c++17 $COMMON_FLAGS \
     -DCPPHTTPLIB_OPENSSL_SUPPORT \
-    -D_GNU_SOURCE \
     -I . \
     -I pvac \
     -I pvac/include \
@@ -166,13 +162,10 @@ chmod 755 "$OUT_DIR/octra_wallet_arm64"
 echo "Copied binary -> assets/octra_wallet_arm64 ($BINARY_SIZE)"
 
 # Copy web UI assets from webcli static/
-# Note: the wrapper's customized versions (index.html, wallet.js, style.css)
-# will be committed directly in the repo and take precedence during APK build.
-# Only copy files from upstream that are NOT customized in the wrapper.
+# Only copy files NOT customized in the wrapper repo
 UPSTREAM_ONLY_FILES=(
     "swap.html"
     "swap.js"
-    "bridge.html"
 )
 
 for f in "${UPSTREAM_ONLY_FILES[@]}"; do
@@ -196,8 +189,9 @@ cd -
 echo ""
 echo "============================================"
 echo "  Cross-compilation complete!"
-echo "  webcli commit: $(git -C "$WEBCLI_DIR" rev-parse --short HEAD 2>/dev/null)"
+echo "  webcli: $(git -C "$WEBCLI_DIR" rev-parse --short HEAD 2>/dev/null)"
 echo "  Binary: $BINARY_SIZE at assets/octra_wallet_arm64"
+echo "  API level: $API"
 echo ""
 echo "  Now build the APK:"
 echo "    ./gradlew assembleRelease"
