@@ -2,18 +2,71 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, update-webcli-2026-04-23 ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build:
+  cross-compile-native:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Wrapper Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout webcli (upstream C++ sources)
+        uses: actions/checkout@v4
+        with:
+          repository: octra-labs/webcli
+          ref: main
+          path: webcli-src
+
+      - name: Install NDK & build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y cmake ninja-build curl tar
+
+          # Download Android NDK r26d
+          NDK_VER="r26d"
+          NDK_ZIP="android-ndk-${NDK_VER}-linux.zip"
+          echo "Downloading NDK ${NDK_VER}..."
+          curl -L "https://dl.google.com/android/repository/${NDK_ZIP}" -o /tmp/ndk.zip
+          unzip -q /tmp/ndk.zip -d $HOME
+          echo "NDK_PATH=$HOME/android-ndk-${NDK_VER}" >> $GITHUB_ENV
+
+      - name: Cross-compile octra_wallet ARM64
+        env:
+          WEBCLI_DIR: ${{ github.workspace }}/webcli-src
+        run: |
+          export NDK_PATH=$NDK_PATH
+          chmod +x cross_compile.sh
+          ./cross_compile.sh
+
+      - name: Verify binary
+        run: |
+          ls -lh app/src/main/assets/octra_wallet_arm64
+          file app/src/main/assets/octra_wallet_arm64
+
+      - name: Upload native binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: octra-wallet-arm64-binary
+          path: app/src/main/assets/octra_wallet_arm64
+          retention-days: 7
+
+  build-apk:
+    runs-on: ubuntu-latest
+    needs: cross-compile-native
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Download native binary
+        uses: actions/download-artifact@v4
+        with:
+          name: octra-wallet-arm64-binary
+          path: app/src/main/assets/
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
