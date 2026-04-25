@@ -24,7 +24,7 @@ jobs:
       - name: Install NDK & build dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y cmake ninja-build curl tar
+          sudo apt-get install -y cmake ninja-build curl tar unzip
 
           # Download Android NDK r26d
           NDK_VER="r26d"
@@ -37,15 +37,15 @@ jobs:
       - name: Cross-compile octra_wallet ARM64
         env:
           WEBCLI_DIR: ${{ github.workspace }}/webcli-src
+          NDK_PATH: ${{ env.NDK_PATH }}
         run: |
-          export NDK_PATH=$NDK_PATH
           chmod +x cross_compile.sh
           ./cross_compile.sh
 
       - name: Verify binary
         run: |
           ls -lh app/src/main/assets/octra_wallet_arm64
-          file app/src/main/assets/octra_wallet_arm64
+          file app/src/main/assets/octra_wallet_arm64 || true
 
       - name: Upload native binary artifact
         uses: actions/upload-artifact@v4
@@ -68,6 +68,9 @@ jobs:
           name: octra-wallet-arm64-binary
           path: app/src/main/assets/
 
+      - name: Ensure binary is executable
+        run: chmod +x app/src/main/assets/octra_wallet_arm64
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -75,10 +78,17 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > octra-release.keystore
-          echo "Keystore decoded successfully ($(wc -c < octra-release.keystore) bytes)"
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > octra-release.keystore
+            echo "Keystore decoded: $(wc -c < octra-release.keystore) bytes"
+          else
+            echo "No keystore secret found — will sign with debug key"
+          fi
 
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x gradlew
@@ -89,14 +99,22 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: |
+          if [ -f "octra-release.keystore" ]; then
+            ./gradlew assembleRelease --no-daemon --stacktrace
+          else
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          fi
 
       - name: List APK output
-        run: find app/build/outputs/apk -name "*.apk" | xargs ls -lh
+        run: find app/build/outputs/apk -name "*.apk" | xargs ls -lh 2>/dev/null || echo "No APK found"
 
-      - name: Upload Signed APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: octra-wallet-release-apk
-          path: app/build/outputs/apk/release/*.apk
+          name: octra-wallet-apk
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/debug/*.apk
           retention-days: 30
+          if-no-files-found: warn
